@@ -118,7 +118,7 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
   v = NisI ? Nv : solver.v
 
   # Set up parameter σₑₛₜ for the error estimate
-  σₑₛₜ = (1 - 1e-10) * √(σₐ^2 + λ^2)
+  σₑₛₜ = (1 - 1e-4) * √(σₐ^2 + λ^2)
 
   # Initial solutions (x₀, y₀) and residual norm ‖r₀‖.
   x .= zero(T)
@@ -208,14 +208,16 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
     τtildeₖ = βₖ / σₑₛₜ
     ζtildeₖ = τtildeₖ / σₑₛₜ
     errvec_x = [τtildeₖ]
-    errvec_y = [ζtildeₖ]
+    errvec_yC = [ζtildeₖ]
+    errvec_yL = [ζtildeₖ]
 
     # Initial values
-    rhobar = -σₑₛₜ;
-    csig = -1;
+    ρbar = -σₑₛₜ
+    csig = -1
   else
     errvec_x = T[]
-    errvec_y = T[]
+    errvec_yC = T[]
+    errvec_yL = T[]
   end
 
   # Stopping criterion.
@@ -223,9 +225,9 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
   tired = false
   status = "unknown"
 
-  xhist = x_history ? [copy(x)] : T[]
-  yLhist = y_history ? [copy(y)] : T[]
-  yChist = y_history ? [ζbarₖ * w̄] : T[]
+  xhist = S[]
+  yLhist = S[]
+  yChist = S[]
 
   while !(solved_lq || solved_cg || tired)
 
@@ -243,6 +245,8 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
       @kaxpy!(n, τₖ, v, x)
     end
 
+    x_history && push!(xhist, copy(x))
+
     # Continue the generalized Golub-Kahan bidiagonalization.
     # AVₖ    = MUₖ₊₁Bₖ
     # AᵀUₖ₊₁ = NVₖ(Bₖ)ᵀ + αₖ₊₁Nvₖ₊₁(eₖ₊₁)ᵀ = NVₖ₊₁(Lₖ₊₁)ᵀ
@@ -251,7 +255,7 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
     #      [ β₂ α₂ •           • ]
     #      [ 0  •  •  •        • ]
     # Lₖ = [ •  •  •  •  •     • ]
-    #      [ •     •  •  •  •  • ]
+    #      [ •     •  •  •  •  • ]  
     #      [ •        •  •  •  0 ]
     #      [ 0  •  •  •  0  βₖ αₖ]
     #
@@ -304,19 +308,26 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
     end
 
     if σₑₛₜ > 0 # L242 - 258
-      mubar = -csig * αhatₖ
-      rho = sqrt(rhobar^2 + αhatₖ^2)
-      csig = rhobar / rho
-      ssig = αhatₖ / rho
-      rhobar = ssig * mubar + csig * σₑₛₜ
-      mubar = -csig * βhatₖ₊₁
-      h = βhatₖ₊₁ * csig / rhobar
-      ω = sqrt(abs(σₑₛₜ^2 - σₑₛₜ * βhatₖ₊₁ * h)) # Tanj: there is a bug here !!
+      μbar = -csig * αhatₖ
+      ρ = √(ρbar^2 + αhatₖ^2)
+      csig = ρbar / ρ
+      ssig = αhatₖ / ρ
+      ρbar = ssig * μbar + csig * σₑₛₜ
+      μbar = -csig * βhatₖ₊₁
+      θ = βhatₖ₊₁ * csig / ρbar
+      ω = if  σₑₛₜ^2 - σₑₛₜ * βhatₖ₊₁ * θ < 0
+        @warn "Negative ω at i=$iter"
+        √(abs(σₑₛₜ^2 - σₑₛₜ * βhatₖ₊₁ * θ))
+      else
+        √(σₑₛₜ^2 - σₑₛₜ * βhatₖ₊₁ * θ) # Tanj: there is a bug here !!
+      end
 
-      rho = sqrt(rhobar^2 + βhatₖ₊₁^2)
-      csig = rhobar / rho
-      ssig = βhatₖ₊₁ / rho
-      rhobar = ssig * mubar + csig * σₑₛₜ
+      τtildeₖ = - τₖ * βhatₖ₊₁ / ω # L290
+
+      ρ = √(ρbar^2 + βhatₖ₊₁^2)
+      csig = ρbar / ρ
+      ssig = βhatₖ₊₁ / ρ
+      ρbar = ssig * μbar + csig * σₑₛₜ
     end
 
     # Continue the LQ factorization of (Lₖ₊₁)ᵀ.
@@ -333,33 +344,42 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
     ζₖ      = cₖ₊₁ * ζbarₖ
     ζbarₖ₊₁ = (τₖ₊₁ - ηₖ₊₁ * ζₖ) / ϵbarₖ₊₁
 
-    if σₑₛₜ > 0
-      τtildeₖ = - τₖ₊₁ * βhatₖ₊₁ / ω # L290
-    end
-
     # Relations for the directions wₖ and w̄ₖ₊₁
     # [w̄ₖ uₖ₊₁] [cₖ₊₁  sₖ₊₁] = [wₖ w̄ₖ₊₁] → wₖ   = cₖ₊₁ * w̄ₖ + sₖ₊₁ * uₖ₊₁
     #           [sₖ₊₁ -cₖ₊₁]             → w̄ₖ₊₁ = sₖ₊₁ * w̄ₖ - cₖ₊₁ * uₖ₊₁
 
     # (yᴸ)ₖ₊₁ ← (yᴸ)ₖ + ζₖ * wₖ
     @kaxpy!(m, ζₖ * cₖ₊₁, w̄, y)
-    @kaxpy!(m, ζₖ * sₖ₊₁, u, y)
+    @kaxpy!(m, ζₖ * sₖ₊₁, u, y) # Check the sign here!!
 
     # Compute w̄ₖ₊₁
     @kaxpby!(m, -cₖ₊₁, u, sₖ₊₁, w̄)
 
     #Tanj: (yᶜ)ₖ₊₁ = (yᴸ)ₖ₊₁ + ζbarₖ w̄
-    y_history && push!(yChist, y + ζbarₖ * w̄)
+    y_history && push!(yChist, y + ζbarₖ * w̄) # Check the sign here!!
 
     if σₑₛₜ > 0 # L353 - 367
-      err_x = √(abs(τtildeₖ^2 - τₖ₊₁^2)) # !!!! and here as well
-      ηtildeₖ = ω*sₖ₊₁
-      ϵtildeₖ = -ω*cₖ₊₁
-      ζtildeₖ = (τtildeₖ - ηtildeₖ * ζtildeₖ) / ϵtildeₖ
-      err_y = sqrt(ζtildeₖ^2 - ζbarₖ₊₁^2);
+      # @show τtildeₖ^2 - τₖ₊₁^2
+      err_x = if τtildeₖ^2 - τₖ₊₁^2 < 0
+        @warn "Negative err_x at i=$iter"
+        √(abs(τtildeₖ^2 - τₖ₊₁^2))
+      else
+        √(τtildeₖ^2 - τₖ₊₁^2) # !!!! and here as well
+      end
+      ηtildeₖ = ω * sₖ₊₁
+      ϵtildeₖ = -ω * cₖ₊₁
+      ζtildeₖ = (τtildeₖ - ηtildeₖ * ζₖ) / ϵtildeₖ
+      
+      err_y = if ζtildeₖ^2 - ζbarₖ₊₁^2 < 0
+        @warn "Negative err_y at i=$iter"
+        √(abs(ζtildeₖ^2 - ζbarₖ₊₁^2))
+      else
+        √(ζtildeₖ^2 - ζbarₖ₊₁^2) # !!!! and here as well
+      end
       err = sqrt(err_x^2 + err_y^2)
       push!(errvec_x, err_x)
-      push!(errvec_y, err_y)
+      push!(errvec_yC, err_y)
+      push!(errvec_yL, ζtildeₖ)
     end
 
     # Compute residual norm ‖(rᴸ)ₖ‖ = |αₖ| * √((ϵbarₖζbarₖ)² + (βₖ₊₁sₖζₖ₋₁)²)
@@ -394,7 +414,6 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
     end
 
     # compute_sols!(λ, solved_cg, n, m, τₖ, cpₖ, v, spₖ, q, ζbarₖ, w̄, ηₖ, ζₖ₋₁, y, x)
-    x_history && push!(xhist, copy(x))
     y_history && push!(yLhist, copy(y))
 
     # Update stopping criterion.
@@ -438,5 +457,5 @@ function Krylov.lnlq!(solver :: LnlqSolver{T,S},
   solved_lq && (status = "solutions (xᴸ, yᴸ) good enough for the tolerances given")
   solved_cg && (status = "solutions (xᶜ, yᶜ) good enough for the tolerances given")
   stats = SimpleStats(solved_lq || solved_cg, false, rNorms, T[], status)
-  return (x, y, stats, xhist, yLhist, yChist, errvec_x, errvec_y)
+  return (x, y, stats, xhist, yLhist, yChist, errvec_x, errvec_yC, errvec_yL)
 end

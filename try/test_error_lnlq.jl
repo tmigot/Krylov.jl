@@ -2,40 +2,23 @@ using Krylov, LinearAlgebra, MatrixMarket, Printf, SparseArrays, Test
 
 # https://sparse.tamu.edu/
 # 1st test done in LNLQ paper: scagr7-2c 	Meszaros https://sparse.tamu.edu/Meszaros/scagr7-2c
-#=
-A1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_A_1.mtx")
-A2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_A_2.mtx")
-A3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_A_3.mtx")
-
-b1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_b_1.mtx")
-b2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_b_2.mtx")
-b3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_b_3.mtx")
-
-c1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_c_1.mtx")
-c2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_c_2.mtx")
-c3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_c_3.mtx")
-
-hi1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_hi_1.mtx")
-hi2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_hi_2.mtx")
-hi3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_hi_3.mtx")
-
-lo1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_lo_1.mtx")
-lo2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_lo_2.mtx")
-lo3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_lo_3.mtx")
-
-c1 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_z0_1.mtx")
-c2 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_z0_2.mtx")
-c3 = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c_z0_3.mtx")
-=#
 A = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c.mtx")
-@test size(A) == (2447,3479)
+# A = rand(2447, 3479)
+@test size(A) == (2447, 3479)
+σₐ = 2.422216e-02 # given on the website
+σₑₛₜ = (1 - 1e-7) * σₐ
+
+A = MatrixMarket.mmread("try/lp_kb2/lp_kb2.mtx")
+@test size(A) == (43, 68)
+σₐ = 1.233973e-02 # given on the website
+σₑₛₜ = (1 - 1e-7) * σₐ
+
 (m, n) = size(A)
 b = ones(m)/√m
+itmax = 1000
 # sol = A \ b # returns something else
 sol = pinv(Matrix(A))* b
-
-σₐ = 2.422216e-02 # given on the website
-σₑₛₜ = (1 - 1e-10) * σₐ
+soly = pinv(Matrix(A * A')) * b
 
 function xhist_to_sol(xhist, sol)
   N = length(xhist)
@@ -46,32 +29,61 @@ function xhist_to_sol(xhist, sol)
   return res
 end
 
-include("lnlq.jl")
+# include("lnlq.jl")
+# include("craig.jl")
+
+println("Test solve with CRAIG")
+(x3, y3, xhist3, yChist3, stats3) = Krylov.craig_bis(A, b, history=true, itmax = itmax)
+r3 = b - A * x3
+resid3 = norm(r3) / norm(b)
+@show resid3
+stats3.residuals
+xres3 = xhist_to_sol(xhist3, sol)
+yCres3 = xhist_to_sol(yChist3, soly)
+
 println("Test solve with LNLQ")
-(x1, y1, stats1, xhist1, yLhist1, yChist1, errvec_x1, errvec_y1) = lnlq(A, b, transfer_to_craig=false, history=true, σₐ = σₐ)
+(x1, y1, stats1, xLhist1, xChist1, yLhist1, yChist1, errvec_x1, errvec_yC1, errvec_yL1) = Krylov.lnlq_bis(A, b, transfer_to_craig=false, history=true, σₐ = σₐ, itmax = itmax)
 r1 = b - A * x1
 resid1 = norm(r1) / norm(b)
 @show resid1
 stats1.residuals
-xres1 = xhist_to_sol(xhist1, sol)
-yres1 = xhist_to_sol(yChist1, y1)
+xLres1 = xhist_to_sol(xLhist1, sol)
+xCres1 = xhist_to_sol(xChist1, sol)
+yCres1 = xhist_to_sol(yChist1, soly) # yChist1[end])
+yLres1 = xhist_to_sol(yLhist1, soly) # yLhist1[end])
 
 println("Test solve with CRAIG (from LNLQ transfer)")
-(x2, y2, stats2, xhist2, yLhist2, yChist2, errvec_x2, errvec_y2) = lnlq(A, b, transfer_to_craig=true, history=true, σₐ = σₐ)
+(x2, y2, stats2, xLhist2, xChist2, yLhist2, yChist2, errvec_x2, errvec_yC2, errvec_yL2) = Krylov.lnlq_bis(A, b, transfer_to_craig=true, history=true, σₐ = σₐ, itmax = itmax)
 r2 = b - A * x2
 resid2 = norm(r2) / norm(b)
 @show resid2
 stats2.residuals
-xres2 = xhist_to_sol(xhist2, sol)
-yres2 = xhist_to_sol(yChist2, y2)
+xLres2 = xhist_to_sol(xLhist2, sol)
+xCres2 = xhist_to_sol(xChist2, sol)
+yCres2 = xhist_to_sol(yChist2, soly) # yChist2[end])
+yLres2 = xhist_to_sol(yLhist2, soly) # yLhist2[end])
 
 using Plots
-plot(log.(xres1), title="Error in x, log scale", label=["||xₗₙₗ-sol||"])
+plot(log.(xCres1), title="Error in x, log scale", label=["||xₗₙₗ-sol||"], legend=:bottomleft)
 plot!(log.(errvec_x1), label=["bound_xₗₙₗ"])
-plot!(log.(xres2), label=["||xcraig-sol||"])
-png("x-plot")
+plot!(log.(xCres2), label=["||xlnlqcraig-sol||"])
+plot!(log.(xres3), label=["||xcraig-sol||"])
+png("xC-plot")
 
-plot(log.(xres1), title="Error in x, log scale", label=["||xₗₙₗ-sol||"])
-plot!(log.(errvec_x1), label=["bound_xₗₙₗ"])
-plot!(log.(xres2), label=["||xcraig-sol||"])
-png("x-plot")
+plot(log.(xLres1), title="Error in x, log scale", label=["||xₗₙₗ-sol||"], legend=:bottomleft)
+plot!(log.(errvec_x1), label=["bound_xₗₙₗ"]) # pas la bonne !!!!
+plot!(log.(xLres2), label=["||xlnlqcraig-sol||"])
+plot!(log.(xres3), label=["||xcraig-sol||"])
+png("xL-plot")
+
+plot(log.(yCres1), title="Error in yC, log scale", label=["||yCₗₙₗ-sol||"], legend=:bottomleft)
+plot!(log.(errvec_yC1), label=["bound_yCₗₙₗ"])
+plot!(log.(yCres2), label=["||yClnlqcraig-sol||"])
+plot!(log.(yCres3), label=["||ycraig-sol||"])
+png("yC-plot")
+
+plot(log.(yLres1), title="Error in yL, log scale", label=["||yLₗₙₗ-sol||"], legend=:bottomleft)
+plot!(log.(errvec_yL1), label=["bound_yLₗₙₗ"])
+plot!(log.(yLres2), label=["||yLlnlqcraig-sol||"])
+plot!(log.(yCres3), label=["||ycraig-sol||"])
+png("yL-plot")

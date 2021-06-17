@@ -41,7 +41,9 @@ include("lsqr.jl")
 include("lsmr.jl")
 
 include("lnlq.jl")
+include("lnlq_bis.jl")
 include("craig.jl")
+include("craig_bis.jl")
 include("craigmr.jl")
 
 end
