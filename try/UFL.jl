@@ -101,7 +101,7 @@ for pb in keys(dict)
 
     print("Génération des graphiques: ")
     plot(0:pos_lnlq-1   , res_lnlq[1:pos_lnlq]    , label="lnlq"      , yaxis=:log10, lw=1, color=1, line=:dash)
-    plot!(0:pos_craig-1 , res_craig[1:pos_craig]  , label="craig"   , yaxis=:log10, lw=1, color=2, xlabel=L"k", ylabel=L"\|r_k\|", legend=:best)
+    plot!(0:pos_craig-1 , res_craig[1:pos_craig]  , label="craig"   , yaxis=:log10, lw=1, color=2, legend=:best)
     png("$(pb)_craig_lnlq")
     # savefig("$(pb)_craig_lnlq.tex")
     # run(`mv graphiques/$(pb)_craig_lnlq.tex graphiques/$(pb)_craig_lnlq.tikz`)

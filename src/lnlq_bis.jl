@@ -74,7 +74,8 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
                N=I,
                sqd :: Bool=false,
                λ :: T=zero(T),
-               σₐ :: T=zero(T), # smallest positive svd
+               σₐ :: T=zero(T), # smaller quantitiy than the smallest positive svd
+               d :: Int=0, # sliding window part of the error estimate
                atol :: T=√eps(T),
                rtol :: T=√eps(T),
                etol :: T=√eps(T),
@@ -115,7 +116,7 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
   v = NisI ? Nv : solver.v
 
   # Set up parameter σₑₛₜ for the error estimate
-  σₑₛₜ = (1 - 1e-4) * √(σₐ^2 + λ^2)
+  σₑₛₜ = √(σₐ^2 + λ^2)
 
   # Initial solutions (x₀, y₀) and residual norm ‖r₀‖.
   x .= zero(T)
@@ -205,6 +206,7 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
     τtildeₖ = βₖ / σₑₛₜ
     ζtildeₖ = τtildeₖ / σₑₛₜ
     errvec_x = [τtildeₖ]
+    errvec_xL = [τtildeₖ]
     errvec_yC = [ζtildeₖ]
     errvec_yL = [ζtildeₖ]
 
@@ -213,6 +215,7 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
     csig = -1
   else
     errvec_x = T[]
+    errvec_xL = T[]
     errvec_yC = T[]
     errvec_yL = T[]
   end
@@ -357,26 +360,51 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
     #Tanj: (yᶜ)ₖ₊₁ = (yᴸ)ₖ₊₁ + ζbarₖ w̄
     y_history && push!(yChist, y + ζbarₖ * w̄) # Check the sign here!!
 
+    #=
+    if σₑₛₜ > 0 && d > 0 # L326 - 351
+      ix = mod(iter - 1, d) + 1
+      c_list(ix) = cₖ₊₁
+      z_list(ix) = ζₖ
+
+      if iter >=  d
+        ix = mod(it - 1, d) + 1
+        jx = mod(ix, d) + 1
+        zetabark = z_list(jx)/c_list(jx)
+        theta = abs(c_list' * s_prod .* z_list)
+        theta = zetabark * theta + abs(zetabark * ζbarₖ* s_prod(ix) * s) - zetabark^2
+    end
+    =#
+
     if σₑₛₜ > 0 # L353 - 367
       # @show τtildeₖ^2 - τₖ₊₁^2
-      err_x = if τtildeₖ^2 - τₖ₊₁^2 < 0
+      disc_x = τtildeₖ^2 - τₖ₊₁^2
+      err_x = if disc_x < 0
         @warn "Negative err_x at i=$iter"
-        √(abs(τtildeₖ^2 - τₖ₊₁^2))
+        √(abs(disc_x))
       else
-        √(τtildeₖ^2 - τₖ₊₁^2) # !!!! and here as well
+        √(disc_x) # !!!! and here as well
+      end
+      disc_xL = disc_x + (τₖ₊₁ - ηₖ₊₁ * ζₖ)^2
+      err_xL = if disc_xL < 0
+        @warn "Negative err_y at i=$iter"
+        √(abs(disc_xL))
+      else
+        √(disc_xL)
       end
       ηtildeₖ = ω * sₖ₊₁
       ϵtildeₖ = -ω * cₖ₊₁
       ζtildeₖ = (τtildeₖ - ηtildeₖ * ζₖ) / ϵtildeₖ
       
-      err_y = if ζtildeₖ^2 - ζbarₖ^2 < 0 # ζtildeₖ^2 - ζbarₖ₊₁^2 < 0
+      disc_y = ζtildeₖ^2 - ζbarₖ₊₁^2  # ζtildeₖ^2 - ζbarₖ^2 # ζtildeₖ^2 - ζbarₖ₊₁^2 
+      err_y = if disc_y < 0
         @warn "Negative err_y at i=$iter"
-        √(abs(ζtildeₖ^2 - ζbarₖ^2)) # √(abs(ζtildeₖ^2 - ζbarₖ₊₁^2))
+        √(abs(disc_y))
       else
-        √(ζtildeₖ^2 - ζbarₖ^2) # √(ζtildeₖ^2 - ζbarₖ₊₁^2) # !!!! and here as well
+        √(disc_y)
       end
       err = sqrt(err_x^2 + err_y^2)
       push!(errvec_x, err_x)
+      push!(errvec_xL, err_xL)
       push!(errvec_yC, err_y)
       push!(errvec_yL, ζtildeₖ)
     end
@@ -456,5 +484,5 @@ function lnlq_bis!(solver :: LnlqSolver{T,S},
   solved_lq && (status = "solutions (xᴸ, yᴸ) good enough for the tolerances given")
   solved_cg && (status = "solutions (xᶜ, yᶜ) good enough for the tolerances given")
   stats = SimpleStats(solved_lq || solved_cg, false, rNorms, T[], status)
-  return (x, y, stats, xLhist, xChist, yLhist, yChist, errvec_x, errvec_yC, errvec_yL)
+  return (x, y, stats, xLhist, xChist, yLhist, yChist, errvec_x, errvec_xL, errvec_yC, errvec_yL)
 end
