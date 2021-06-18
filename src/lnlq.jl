@@ -356,7 +356,7 @@ function lnlq!(solver :: LnlqSolver{T,S}, A, b :: AbstractVector{T};
       end
     else
       # (xᴸ)ₖ ← (xᵃᵘˣ)ₖ₋₁ + ηₖζₖ₋₁ * vₖ
-      @kaxpy!(n, τₖ, v, x) # @kaxpy!(n, ηₖ * ζₖ₋₁, v, x)
+      @kaxpy!(n, ηₖ * ζₖ₋₁, v, x) # @kaxpy!(n, τₖ, v, x) # 
     end
   end
 
