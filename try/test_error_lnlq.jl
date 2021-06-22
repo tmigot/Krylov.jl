@@ -6,7 +6,7 @@ A = MatrixMarket.mmread("try/scagr7-2c/scagr7-2c.mtx")
 # A = rand(2447, 3479)
 @test size(A) == (2447, 3479)
 σₐ = 2.422216e-02 # given on the website
-σₑₛₜ = (1 - 1e-1) * σₐ
+σₑₛₜ = (1 - 1e-7) * σₐ
 λ = 0.
 
 #=
@@ -19,7 +19,7 @@ A = MatrixMarket.mmread("try/lp_kb2/lp_kb2.mtx")
 
 (m, n) = size(A)
 b = ones(m)/√m
-itmax = 1000
+itmax = 120
 # sol = A \ b # returns something else
 sol = pinv(Matrix(A))* b
 soly = pinv(Matrix(A * A')) * b
@@ -37,7 +37,7 @@ end
 # include("craig.jl")
 
 println("Test solve with CRAIG")
-(x3, y3, xhist3, yChist3, stats3) = Krylov.craig_bis(A, b, history=true, itmax = itmax)
+(x3, y3, xhist3, yChist3, stats3) = Krylov.craig_bis(A, b, history=true, itmax = itmax, atol=0.0, rtol=0.0, btol=0.0, conlim=Inf)
 r3 = b - A * x3
 resid3 = norm(r3) / norm(b)
 @show resid3
@@ -76,7 +76,7 @@ png("xC-plot")
 
 plot(log10.(xLres1), title="Error in x, log scale", label=["||xₗₙₗ-sol||"], legend=:bottomleft)
 plot!(log10.(errvec_xL1), label=["bound_xₗₙₗ"]) # pas la bonne !!!!
-plot!(log10.(xLres2), label=["||xlnlqcraig-sol||"])
+# plot!(log10.(xLres2), label=["||xlnlqcraig-sol||"])
 plot!(log10.(xres3), label=["||xcraig-sol||"])
 png("xL-plot")
 
@@ -88,6 +88,6 @@ png("yC-plot")
 
 plot(log10.(yLres1), title="Error in yL, log scale", label=["||yLₗₙₗ-sol||"], legend=:bottomleft)
 plot!(log10.(errvec_yL1), label=["bound_yLₗₙₗ"])
-plot!(log10.(yLres2), label=["||yLlnlqcraig-sol||"])
+# plot!(log10.(yLres2), label=["||yLlnlqcraig-sol||"])
 plot!(log10.(yCres3), label=["||ycraig-sol||"])
 png("yL-plot")
